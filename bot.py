@@ -4,7 +4,8 @@ import os
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import CallbackQuery
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -54,6 +55,8 @@ async def answer_message(message, user_id, text):
         await message.answer("Ты уже в списке!")
         return
     await loop.run_in_executor(None, save_contact, user_id, text)
+    
+    # Отправляем текстовое сообщение
     await message.answer(
         """
         🔥 Ура, ты в списке первых пользователей!
@@ -65,23 +68,33 @@ async def answer_message(message, user_id, text):
 🔗 @laterlistener_promo_bot
 
 А вот тебе бонус — мини-гайд с 10 нейросетями, которые мы сами используем в учёбе и работе:
-[ПРИКРЕПЛЁННЫЙ МАНУАЛ]
         """
     )
+    
+    # Отправляем файл мануала
+    try:
+        manual_file = FSInputFile("LaterListener Бесплатные нейросети.pdf", filename="LaterListener Бесплатные нейросети.pdf")
+        await message.answer_document(
+            document=manual_file,
+            caption="📚 Мини-гайд: 10 полезных нейросетей для учёбы и работы"
+        )
+    except FileNotFoundError:
+        await message.answer("📚 Мини-гайд: 10 полезных нейросетей для учёбы и работы\n(Файл временно недоступен)")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке файла: {e}")
+        await message.answer("📚 Мини-гайд: 10 полезных нейросетей для учёбы и работы\n(Файл временно недоступен)")
 
 dp = Dispatcher()
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     username = message.from_user.username
-    if username:
-        kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text=f"Отправить мой Telegram")]],
-            resize_keyboard=True
-        )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="ОТПРАВИТЬ СВОЙ ТЕЛЕГРАММ 🚀", callback_data="send_telegram")]]
+    )
     await message.answer(
         """
-        👋 Привет! Мы делаем Telegram-бота, который превращает голосовые, аудио и видео в:
+        👋 Привет! Мы приглашаем поучаствовать в мега крутом проекте, который умеет делать:
 
 — расшифровку текста  
 — краткое саммари  
@@ -93,6 +106,17 @@ async def cmd_start(message: Message):
         """,
         reply_markup=kb
     )
+@dp.callback_query(lambda c: c.data == "send_telegram")
+async def handle_telegram_button(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    username = callback.from_user.username
+    if username:
+        await callback.message.answer(f"@{username}")
+        await answer_message(message=callback.message, user_id=user_id, text=f"@{username}")
+    else:
+        await callback.message.answer("У вас не установлен username в Telegram. Пожалуйста, задайте его в настройках Telegram и попробуйте снова.")
+    await callback.answer()
+
 @dp.message()
 async def handle_message(message: Message):
     if not message.from_user:
@@ -100,14 +124,6 @@ async def handle_message(message: Message):
         return
     user_id = message.from_user.id
     text = message.text.strip() if message.text else ""
-    if text == "Отправить мой Telegram":
-        username = message.from_user.username
-        if username:
-            await message.answer(f"@{username}")
-            await answer_message(message=message, user_id=user_id, text=f"@{username}")
-        else:
-            await message.answer("Похоже, у тебя не задан username в Telegram.\nПроверь настройки и задай @имя, чтобы мы могли сохранить твой контакт.")
-        return
     if EMAIL_REGEX.match(text) or TG_REGEX.match(text):
         await answer_message(message=message, user_id=user_id, text=text)
     else:
